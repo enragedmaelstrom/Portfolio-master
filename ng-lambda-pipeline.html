@@ -1,0 +1,399 @@
+<!DOCTYPE HTML>
+<html>
+	<head>
+		<title>Paul Hankins</title>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+		<link rel="stylesheet" href="assets/css/main.css" />
+		<noscript><link rel="stylesheet" href="assets/css/noscript.css" /></noscript>
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.28.0/themes/prism-dark.min.css" />
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.28.0/plugins/toolbar/prism-toolbar.min.css" integrity="sha512-Dqf5696xtofgH089BgZJo2lSWTvev4GFo+gA2o4GullFY65rzQVQLQVlzLvYwTo0Bb2Gpb6IqwxYWtoMonfdhQ==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.28.0/plugins/line-numbers/prism-line-numbers.min.css" integrity="sha512-cbQXwDFK7lj2Fqfkuxbo5iD1dSbLlJGXGpfTDqbggqjHJeyzx88I3rfwjS38WJag/ihH7lzuGlGHpDBymLirZQ==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+	</head>
+	<body class="is-preload">
+
+		<!-- Wrapper -->
+			<div id="wrapper">
+
+				<!-- Header -->
+				<header id="header">
+					<a href="index.html" class="logo">Home</a>
+				</header>
+
+				<!-- Nav -->
+					<nav id="nav">
+						<ul class="links">
+							<li><a href="index.html">About me</a></li>
+							<li  class="active"><a href="engineer-projects-1.html">Data Engineer Projects</a></li>
+							<li><a href="elements.html">Elements Reference</a></li>
+						</ul>
+						<ul class="icons">
+							<li><a href="https://www.linkedin.com/in/paul-hankins-075119204/" class="icon brands fa-linkedin"><span class="label">Instagram</span></a></li>
+							<li><a href="https://github.com/Piblo99" class="icon brands fa-github"><span class="label">GitHub</span></a></li>
+						</ul>
+					</nav>
+
+				<!-- Main -->
+					<div id="main">
+
+						<!-- Post -->
+							<section class="post">
+								<header class="major">
+									<span class="date">May 04, 2022</span>
+									<h1>Serverless Data<br />
+                                    Engineering Pipeline: AWS</h1>
+								<p>
+                                    The objective of this project was create serverless data pipeline
+									that would use DynamoDB as a source for data, and push that data into 
+                                    AWS SQS using a producer lambda function. Then the data in SQS would be
+                                    consumed by a consumer lambda function. The consumer lambda function sits idly
+                                    waiting for the producer to run from a cloudwatch event bridge trigger every 1 minutes.
+                                    As soon as the producer is pushed to SQS the consumer should take those messages in the Queue
+                                    and push them to the AWS Comprehend service. AWS comprehend would perform sentiment analysis
+                                    on these messages using wikipedia searches on the names of FANG companies.
+                                    After AWS Comprehend generates a sentiment score, the consumer function generats a CSV
+                                    file in an Amazon S3 bucket containing the name of the company and the sentiment score
+                                    for each message consumed.
+                                </p>
+                                <div class="image main"><img src="images/ngpipeline.png" alt="" /></div>
+								</header>
+                                <h2 style="text-align:center;">Setting up AWS Environment</h2>
+                                <p>
+                                   Firstly, I used AWS IAM to create a role called admin with administrator access permission.
+                                   This role would later be used for execution roles for lambda functions.
+                                   Then I created a DynamoDB table called fang, which I filled with items that each had one string value called name. 
+                                   I created items with name values: Facebook, Amazon (Company) [just Amazon would cause a disambiguation error in the consumer later], Netflix, and Google. 
+                                   Next, I created an SQS queue named producer and set the visibility timeout window to 2 minutes.
+                                   [I set this visibility window to 2 but just setting it to above 1 minute is fine. 
+                                   it just needs to be greater than the timeout for the consumer function]. I then created
+                                   an S3 bucket that was used to hold the packages for my lambda functions and the output of the pipeline.
+                                   The S3 bucket needed to have public access allowed so the lambda functions could access it.
+                                   Lastly for the setup of this project, I used the Cloud9 service to create an environment called serverless-lambda using an EC2
+                                   instance running amazon linux 2. This instance's volume starts with 10 GBs but it needed to be upgraded to 20 GBs
+                                   in order for the code for the producer to be tested to test code. The consumer function could not be tested inside of the
+                                   Cloud9 environment. After you modify the volume to have 20 GBs, reboot the instance being used for the Cloud9 environment.
+                                   Then I used <code>df -h</code> in the bash terminal for the environment to confirm that it has 20 GBs in the root volume.
+                                </p>
+                                <h2 style="text-align:center;">Creating the Lambda SAM Applications</h2>
+                                <p>
+                                    The next step is to create our producer application! I simply went into the serverless-lambda environment, and
+                                    clicked Create Lambda SAM Application in the us-east-1 Region. I set the runtime to python 3.8, architecture to x86_64, 
+                                    selected the Hello world template, and then set the name to consumer. After the application was created, I located the 
+                                    app.py file within the hello_world folder and replaced the template code with the following: 
+                                </p>
+<pre><code class="language-python line-numbers">
+"""
+Dynamo to SQS
+"""
+
+import boto3
+import json
+
+DYNAMODB = boto3.resource("dynamodb")
+TABLE = "fang"
+QUEUE = "producer"
+SQS = boto3.client("sqs")
+
+# SETUP LOGGING
+import logging
+from pythonjsonlogger import jsonlogger
+
+LOG = logging.getLogger()
+LOG.setLevel(logging.INFO)
+logHandler = logging.StreamHandler()
+formatter = jsonlogger.JsonFormatter()
+logHandler.setFormatter(formatter)
+LOG.addHandler(logHandler)
+
+
+def scan_table(table):
+    """Scans table and return results"""
+
+    LOG.info(f"Scanning Table {table}")
+    producer_table = DYNAMODB.Table(table)
+    response = producer_table.scan()
+    items = response["Items"]
+    LOG.info(f"Found {len(items)} Items")
+    return items
+
+
+def send_sqs_msg(msg, queue_name, delay=0):
+    """Send SQS Message
+    Expects an SQS queue_name and msg in a dictionary format.
+    Returns a response dictionary.
+    """
+
+    queue_url = SQS.get_queue_url(QueueName=queue_name)["QueueUrl"]
+    queue_send_log_msg = "Send message to queue url: %s, with body: %s" % (
+        queue_url,
+        msg,
+    )
+    LOG.info(queue_send_log_msg)
+    json_msg = json.dumps(msg)
+    response = SQS.send_message(
+        QueueUrl=queue_url, MessageBody=json_msg, DelaySeconds=delay
+    )
+    queue_send_log_msg_resp = "Message Response: %s for queue url: %s" % (
+        response,
+        queue_url,
+    )
+    LOG.info(queue_send_log_msg_resp)
+    return response
+
+
+def send_emissions(table, queue_name):
+    """Send Emissions"""
+
+    items = scan_table(table=table)
+    for item in items:
+        LOG.info(f"Sending item {item} to queue: {queue_name}")
+        response = send_sqs_msg(item, queue_name=queue_name)
+        LOG.debug(response)
+
+
+def lambda_handler(event, context):
+    """
+    Lambda entrypoint
+    """
+
+    extra_logging = {"table": TABLE, "queue": QUEUE}
+    LOG.info(f"event {event}, context {context}", extra=extra_logging)
+    send_emissions(table=TABLE, queue_name=QUEUE)
+</code></pre><br>
+                                <p>
+                                    I now needed to install the required packages to run the code. I went to my Bash terminal and ran the following commands:
+                                    <br><code>cd ~/environment/producer/hello_world</code>
+                                    <br><code>pip3 install python-json-logger -t ./</code>
+                                    <br><code>pip3 install boto3 -t ./</code>
+                                    <br>This code could now be tested inside of the serverless-lambda environment. I could verify that it ran correctly 
+                                    by looking at log messages in the AWS toolkit terminal, and or checking the amount of messages in the producer SQS queue 
+                                    I saw that in the producer Queue that 4 messages had arrived, which is the amount of items in the fang table. 
+                                    None of the logs showed any issues so i moved on to creating the consumer. It was the same process as above but I named 
+                                    the SAM application consumer, and I replaced the app.py file's code with the following:
+                                </p>
+<pre><code class="language-python line-numbers">
+import json
+
+import boto3
+import botocore
+
+# import pandas as pd
+import pandas as pd
+import wikipedia
+from io import StringIO
+
+
+# SETUP LOGGING
+import logging
+from pythonjsonlogger import jsonlogger
+boto3.set_stream_logger('')
+
+# S3 BUCKET
+REGION = "us-east-1"
+
+def sqs_connection():
+    """Creates an SQS Connection which defaults to global var REGION"""
+
+    sqs_client = boto3.client("sqs", region_name=REGION)
+    return sqs_client
+
+
+def delete_sqs_msg(queue_name, receipt_handle):
+
+    sqs_client = sqs_connection()
+    queue_url = sqs_client.get_queue_url(QueueName=queue_name)["QueueUrl"]
+    response = sqs_client.delete_message(
+        QueueUrl=queue_url, ReceiptHandle=receipt_handle
+    )
+    return response
+
+
+def names_to_wikipedia(names):
+
+    wikipedia_snippit = []
+    for name in names:
+        wikipedia_snippit.append(wikipedia.summary(name, sentences=1, auto_suggest=False))
+    df = pd.DataFrame({"names": names, "wikipedia_snippit": wikipedia_snippit})
+    return df
+
+
+def create_sentiment(row):
+    comprehend = boto3.client(service_name="comprehend")
+    payload = comprehend.detect_sentiment(Text=row, LanguageCode="en")
+    sentiment = payload["Sentiment"]
+    return sentiment
+
+
+def apply_sentiment(df, column="wikipedia_snippit"):
+    """Uses Pandas Apply to Create Sentiment Analysis"""
+
+    df["Sentiment"] = df[column].apply(create_sentiment)
+    return df
+
+
+### S3 ###
+
+
+def write_s3(df, bucket, name):
+    """Write S3 Bucket"""
+
+    csv_buffer = StringIO()
+    df.to_csv(csv_buffer)
+    s3_resource = boto3.resource("s3")
+    filename = f"{name}_sentiment.csv"
+    s3_resource.Object(bucket, filename).put(Body=csv_buffer.getvalue())
+
+
+def lambda_handler(event, context):
+    """Entry Point for Lambda"""
+    receipt_handle = event["Records"][0]["receiptHandle"]  # sqs message
+    event_source_arn = event["Records"][0]["eventSourceARN"]
+
+    names = []  # Captured from Queue
+
+    # Process Queue
+    for record in event["Records"]:
+        body = json.loads(record["body"])
+        company_name = body["name"]
+
+        # Capture for processing
+        names.append(company_name)
+
+        extra_logging = {"body": body, "company_name": company_name}
+        qname = event_source_arn.split(":")[-1]
+        extra_logging["queue"] = qname
+        delete_sqs_msg(queue_name=qname, receipt_handle=receipt_handle)
+
+    # Make Pandas dataframe with wikipedia snippts
+    df = names_to_wikipedia(names)
+
+    # Perform Sentiment Analysis
+    df = apply_sentiment(df)
+
+    # Write result to S3
+    write_s3(df=df, bucket="peepee", name=names)
+</code></pre><br>
+                                <p>
+                                    This also needed packages installed so i ran the following commands:
+                                    <br><code>cd ~/environment/consumer/hello_world</code>
+                                    <br><code>pip3 install python-json-logger -t ./</code>
+                                    <br><code>pip3 install boto3 -t ./</code>
+                                    <br><code>pip3 install wikipedia -t ./</code>
+                                    <br>[installing pandas in the bash terminal and then trying to run this code after it is deployed produced an error, so I added it as a layer later on instead.]
+                                </p>
+                                <h2 style="text-align:center;">Deploying and configuring the SAM applications</h2>
+                                <p>
+                                    In the AWS explorer window i right clicked the region (us-east-1) and selected Deploy SAM Application.
+                                    I selected producer/template.yaml and then selected the S3 bucket I created earlier.
+                                    Then set the stack name to producer and hit enter. Once the producer was deploted, I did the same process
+                                    for the consumer but set the stack name to consumer. Now that both of the applications were deployed,
+                                    I went into the AWS Lambda service and selected the producer function. I changed the execution role to the admin
+                                    role that I created earlier. Then i added an EventBridge(cloudwatch events) trigger to the function. 
+                                    I configured the trigger to use a new schedule expression of rate(1 minute) so the function would automatically run
+                                    every minute.
+                                    <br>
+                                    <br>
+                                    Next i configured the consumer function. I applied the admin execution role, then added pandas layer that was compatible
+                                    with my runtime by specifying the ARN: arn:aws:lambda:us-east-1:770693421928:layer:Klayers-p38-pandas:3
+                                    <br>
+                                    Then I changed the timeout for the function in the general configuration from 3 seconds to 1 min
+                                    [the function takes so long to run at some points that a timout of 3 seconds will just make it quit without returning any outputs]
+                                    
+                                </p>
+                                <h2 style="text-align:center;">Creating the logs</h2>
+								<p>
+                                    To generate the logs that would be ingested into the pipeline,
+                                    I used a tool called <a style="color: blue" href="https://github.com/mingrammer/flog">flog</a>;
+                                    A fake log generator for common log formats. 
+                                    This tool was extremely helpful and perfectly 
+                                    generated the required logs for streamsets, except
+                                    for the apache error logs. Streamsets log parsers work
+                                    for a different version of the apache error logs than
+                                    flog was generating. I needed to edit the log.go file
+                                    to generate them in the correct format for SDC. I installed 
+                                    flog using <code>go get -u github.com/mingrammer/flog</code>
+                                    then I went to the location of the installed files at
+                                    C:\Users\[username]\go\pkg\mod\github.com\mingrammer\flog@v0.4.3<br />
+                                    I replaced the contents of log.go with the following code:
+                                </p>
+
+                                <p>
+                                   After I replaced the code, I ran go build and then go install in my terminal.
+                                   Now the apache error logs will be generated in a format 
+                                   that can be ingested into streamsets without raising an error.
+                                   Next I created a folder called Data in my downloads folder.
+                                   I opened my terminal and set the current working directory
+                                   to this folder and ran the following commands:<br />
+
+                                   <code>flog -t log -f apache_error -o error.log -n 100000 -w</code><br />
+                                   <code>flog -t log -f apache_common -o common.log -n 100000 -w</code><br />
+                                   <code>flog -t log -f apache_combined -o combined.log -n 100000 -w</code><br />
+
+                                   After the log files are generated I extracted the files of the GeoLite2-City_20220426.tar.gz
+                                   into the data folder as well and it was now ready to put into the docker container
+                                   where the SDC pipeline is running. To do so, I ran this command on a terminal in my host machine:<br />
+                                   <pre><code>docker cp C:\Users\[username]\Downloads\data [container_name]:/resources</code></pre><br />
+                                   
+                                </p>
+
+                                <h2 style="text-align:center;">Running the Pipeline</h2>
+                                <p>
+                                    The pipeline runs successfully and starts sending thousands of records every second to
+                                    the destination on the local file system. To move this outputted data from the SDC container
+                                    to the host machine, we can use docker cp again but in reverse:
+
+                                    <pre><code>docker cp [container_name]:/tmp/out/apacheoutput/_tmp_logdata_0.csv C:\Users[name]\Downloads\data</code></pre>
+                                    Now that we have the final result of the pipeline on our host computer, we can put this CSV into tableau to create a visualization.
+                                </p>
+                                <div class='tableauPlaceholder' id='viz1652020687378' style='position: relative'><noscript><a href='#'><img alt='Dashboard 1 ' src='https:&#47;&#47;public.tableau.com&#47;static&#47;images&#47;lo&#47;logsviz&#47;Dashboard1&#47;1_rss.png' style='border: none' /></a></noscript><object class='tableauViz'  style='display:none;'><param name='host_url' value='https%3A%2F%2Fpublic.tableau.com%2F' /> <param name='embed_code_version' value='3' /> <param name='site_root' value='' /><param name='name' value='logsviz&#47;Dashboard1' /><param name='tabs' value='no' /><param name='toolbar' value='yes' /><param name='static_image' value='https:&#47;&#47;public.tableau.com&#47;static&#47;images&#47;lo&#47;logsviz&#47;Dashboard1&#47;1.png' /> <param name='animate_transition' value='yes' /><param name='display_static_image' value='yes' /><param name='display_spinner' value='yes' /><param name='display_overlay' value='yes' /><param name='display_count' value='yes' /><param name='language' value='en-US' /><param name='filter' value='publish=yes' /></object></div>                <script type='text/javascript'>                    var divElement = document.getElementById('viz1652020687378');                    var vizElement = divElement.getElementsByTagName('object')[0];                    if ( divElement.offsetWidth > 800 ) { vizElement.style.width='100%';vizElement.style.height=(divElement.offsetWidth*0.75)+'px';} else if ( divElement.offsetWidth > 500 ) { vizElement.style.width='100%';vizElement.style.height=(divElement.offsetWidth*0.75)+'px';} else { vizElement.style.width='100%';vizElement.style.height='1177px';}                     var scriptElement = document.createElement('script');                    scriptElement.src = 'https://public.tableau.com/javascripts/api/viz_v1.js';vizElement.parentNode.insertBefore(scriptElement, vizElement);</script>
+                                <p>
+                                    <br/>
+                                    This visualization is relatively simple, But I could make something more interesting if the data weren't cleaned so much.
+                                    The point of this project was to learn about the capabilites of StreamSets.
+                                    It seems like a powerful tool and it is very fun to use!!!
+                                </p>
+							</section>
+
+					</div>
+
+				<!-- Footer -->
+                <footer id="footer">
+                    <section class="alt">
+                        <h3>Address</h3>
+                        <p>821 S JOHNSTONE AVE APT 406<br />
+                            BARTLESVILLE, OK 74003-4656</p>
+                    </section>
+                    <section>
+                        <h3>Phone</h3>
+                        <p>(504) 201-4748</p>
+                    </section>
+                    <section>
+                        <h3>Email</h3>
+                        <p>paulhankins99@gmail.com</p>
+                    </section>
+                    <section>
+                        <h3>Social</h3>
+                        <ul class="icons alt">
+                            <li><a href="https://www.linkedin.com/in/paul-hankins-075119204/" class="icon brands alt fa-linkedin"><span class="label">Linkedin</span></a></li>
+                            <li><a href="https://github.com/Piblo99" class="icon brands alt fa-github"><span class="label">GitHub</span></a></li>
+                        </ul>
+                    </section>
+            </footer>
+
+			</div>
+
+		<!-- Scripts -->
+			<script src="assets/js/jquery.min.js"></script>
+			<script src="assets/js/jquery.scrollex.min.js"></script>
+			<script src="assets/js/jquery.scrolly.min.js"></script>
+			<script src="assets/js/browser.min.js"></script>
+			<script src="assets/js/breakpoints.min.js"></script>
+			<script src="assets/js/util.js"></script>
+			<script src="assets/js/main.js"></script>
+            <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.28.0/prism.min.js"></script>
+            <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.28.0/plugins/toolbar/prism-toolbar.min.js" integrity="sha512-st608h+ZqzliahyzEpETxzU0f7z7a9acN6AFvYmHvpFhmcFuKT8a22TT5TpKpjDa3pt3Wv7Z3SdQBCBdDPhyWA==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+            <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.28.0/plugins/copy-to-clipboard/prism-copy-to-clipboard.min.js" integrity="sha512-/kVH1uXuObC0iYgxxCKY41JdWOkKOxorFVmip+YVifKsJ4Au/87EisD1wty7vxN2kAhnWh6Yc8o/dSAXj6Oz7A==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+            <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.28.0/plugins/line-numbers/prism-line-numbers.min.js" integrity="sha512-BttltKXFyWnGZQcRWj6osIg7lbizJchuAMotOkdLxHxwt/Hyo+cl47bZU0QADg+Qt5DJwni3SbYGXeGMB5cBcw==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+            <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.28.0/components/prism-python.min.js" integrity="sha512-AKaNmg8COK0zEbjTdMHJAPJ0z6VeNqvRvH4/d5M4sHJbQQUToMBtodq4HaV4fa+WV2UTfoperElm66c9/8cKmQ==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+	</body>
+</html>

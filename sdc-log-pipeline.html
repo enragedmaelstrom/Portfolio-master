@@ -1,0 +1,346 @@
+<!DOCTYPE HTML>
+<html>
+	<head>
+		<title>Paul Hankins</title>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+		<link rel="stylesheet" href="assets/css/main.css" />
+		<noscript><link rel="stylesheet" href="assets/css/noscript.css" /></noscript>
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.28.0/themes/prism-dark.min.css" />
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.28.0/plugins/toolbar/prism-toolbar.min.css" integrity="sha512-Dqf5696xtofgH089BgZJo2lSWTvev4GFo+gA2o4GullFY65rzQVQLQVlzLvYwTo0Bb2Gpb6IqwxYWtoMonfdhQ==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.28.0/plugins/line-numbers/prism-line-numbers.min.css" integrity="sha512-cbQXwDFK7lj2Fqfkuxbo5iD1dSbLlJGXGpfTDqbggqjHJeyzx88I3rfwjS38WJag/ihH7lzuGlGHpDBymLirZQ==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+	</head>
+	<body class="is-preload">
+
+		<!-- Wrapper -->
+			<div id="wrapper">
+
+				<!-- Header -->
+				<header id="header">
+					<a href="index.html" class="logo">Home</a>
+				</header>
+
+				<!-- Nav -->
+					<nav id="nav">
+						<ul class="links">
+							<li><a href="index.html">About me</a></li>
+							<li  class="active"><a href="engineer-projects-1.html">Data Engineer Projects</a></li>
+							<li><a href="elements.html">Elements Reference</a></li>
+						</ul>
+						<ul class="icons">
+							<li><a href="https://www.linkedin.com/in/paul-hankins-075119204/" class="icon brands fa-linkedin"><span class="label">Instagram</span></a></li>
+							<li><a href="https://github.com/Piblo99" class="icon brands fa-github"><span class="label">GitHub</span></a></li>
+						</ul>
+					</nav>
+
+				<!-- Main -->
+					<div id="main">
+
+						<!-- Post -->
+							<section class="post">
+								<header class="major">
+									<span class="date">April 29, 2022</span>
+									<h1>StreamSets Data Collector<br />
+                                    Apache Log Pipeline</h1>
+									<p>The objective of this project was to use StreamSets Data Collector
+									do build a data pipeline that would ingest Apache error, common, and combined logs.
+									Then this pipeline filtered the logs into three different streams, 
+                                    with each stream having some additional processing. The output of this
+                                    pipeline was then be used to create a dashboard using Tableau.</p>
+								</header>
+                                <h2 style="text-align:center;">Setting up StreamSets Environment</h2>
+                                <p>
+                                    The first thing I did was log into StreamSets Control Hub and create a new self managed deployment
+                                    using the data collector engine. I set the install type to Docker image. Then, I created
+                                    a new pipeline using the authoring engine I had just previously created. 
+                                </p>
+                                <div class="image main"><img src="images/streamsetsFS.png" alt="" /></div>
+                                <h2 style="text-align:center;">Pipeline process</h2>
+                                <p>
+                                    A picture of the completed pipeline can be seen above, Now I will go into the process of creating this pipeline.
+                                    The origin stage is configured to ingest log files from the resources folder within the container running SDC.
+                                    The data then goes into a stream selector processor which sends the three different types of logs (Error, Common, and Combined) down different
+                                    streams based on string values they contain. Each type of log goes into it's respective
+                                    Log parser, which detects the log type and breaks the entire log into multiple name:value fields.
+                                    The records then go through a filtering process so I can just get critical errors and logs with the HTTP verb of PATCH.
+                                    The apache error logs are generated a bit differently and need some extra processing to generate a proper clientIP field.
+                                    Then, all the records move to a GeoIP processor which will use a database of ip addresses and their corresponding cities and other information.
+                                    The GeoIP processor is configured to look for the database mmdb file im the resources directory of the SDC container.
+                                    After additional information is added to the records, they go through another Stream selector to remove records that have null values in the city field.
+                                    I used the field order processor to explicitly order the name:value pairs so they can be properly outputted to a local directory in the SDC container.
+                                    Lastly, everything not wanted goes into the trash destination.
+                                    <br /><br />
+                                    I put the Complete json for the pipeline below in case you want to see the complete configuration in detail and or run the pipeline.
+                                    <br /><br />
+                                    <a style="color: blue; text-align: center;" href="https://raw.githubusercontent.com/Piblo99/Portfolio/master/peedeepipeline.json">complete pipeline json</a>
+                                </p>
+                                
+                                <h2 style="text-align:center;">Getting the GeoLite2-City database</h2>
+                                <p>
+                                    Part of this project involves creating a geographical visualization on a dashboard.
+                                    To accomplish this, I used the GeoLite2-City database from <a style="color: blue" href="https://www.maxmind.com/">maxmind.com</a>.
+                                    Streamsets has a GeoIP processor that can use this database to create Fields containing Longitude
+                                    and Latitude values, aswell as the corresponding city names.
+                                </p>
+                                <h2 style="text-align:center;">Creating the logs</h2>
+								<p>
+                                    To generate the logs that would be ingested into the pipeline,
+                                    I used a tool called <a style="color: blue" href="https://github.com/mingrammer/flog">flog</a>;
+                                    A fake log generator for common log formats. 
+                                    This tool was extremely helpful and perfectly 
+                                    generated the required logs for streamsets, except
+                                    for the apache error logs. Streamsets log parsers work
+                                    for a different version of the apache error logs than
+                                    flog was generating. I needed to edit the log.go file
+                                    to generate them in the correct format for SDC. I installed 
+                                    flog using <code>go get -u github.com/mingrammer/flog</code>
+                                    then I went to the location of the installed files at
+                                    C:\Users\[username]\go\pkg\mod\github.com\mingrammer\flog@v0.4.3<br />
+                                    I replaced the contents of log.go with the following code:
+                                </p>
+                                
+<pre><code class="language-go line-numbers">
+package main
+
+import (
+	"fmt"
+	"strings"
+	"time"
+	"math/rand"
+
+	"github.com/brianvoe/gofakeit"
+)
+
+const (
+	// ApacheCommonLog : {host} {user-identifier} {auth-user-id} [{datetime}] "{method} {request} {protocol}" {response-code} {bytes}
+	ApacheCommonLog = "%s - %s [%s] \"%s %s %s\" %d %d"
+	// ApacheCombinedLog : {host} {user-identifier} {auth-user-id} [{datetime}] "{method} {request} {protocol}" {response-code} {bytes} "{referrer}" "{agent}"
+	ApacheCombinedLog = "%s - %s [%s] \"%s %s %s\" %d %d \"%s\" \"%s\""
+	// ApacheErrorLog : [{timestamp}] [{module}:{severity}] [pid {pid}:tid {thread-id}] [client %{client}:{port}] %{message}
+	ApacheErrorLog = "[%s] [%s] [pid %d:tid %d] [client %s:%d] %s"
+	// RFC3164Log : <priority>{timestamp} {hostname} {application}[{pid}]: {message}
+	RFC3164Log = "<%d>%s %s %s[%d]: %s"
+	// RFC5424Log : <priority>{version} {iso-timestamp} {hostname} {application} {pid} {message-id} {structured-data} {message}
+	RFC5424Log = "<%d>%d %s %s %s %d ID%d %s %s"
+	// CommonLogFormat : {host} {user-identifier} {auth-user-id} [{datetime}] "{method} {request} {protocol}" {response-code} {bytes}
+	CommonLogFormat = "%s - %s [%s] \"%s %s %s\" %d %d"
+	// JSONLogFormat : {"host": "{host}", "user-identifier": "{user-identifier}", "datetime": "{datetime}", "method": "{method}", "request": "{request}", "protocol": "{protocol}", "status", {status}, "bytes": {bytes}, "referer": "{referer}"}
+	JSONLogFormat = `{"host":"%s", "user-identifier":"%s", "datetime":"%s", "method": "%s", "request": "%s", "protocol":"%s", "status":%d, "bytes":%d, "referer": "%s"}`
+)
+
+// NewApacheCommonLog creates a log string with apache common log format
+func NewApacheCommonLog(t time.Time) string {
+	return fmt.Sprintf(
+		ApacheCommonLog,
+		gofakeit.IPv4Address(),
+		RandAuthUserID(),
+		t.Format(Apache),
+		gofakeit.HTTPMethod(),
+		RandResourceURI(),
+		RandHTTPVersion(),
+		gofakeit.StatusCode(),
+		gofakeit.Number(0, 30000),
+	)
+}
+
+// NewApacheCombinedLog creates a log string with apache combined log format
+func NewApacheCombinedLog(t time.Time) string {
+	return fmt.Sprintf(
+		ApacheCombinedLog,
+		gofakeit.IPv4Address(),
+		RandAuthUserID(),
+		t.Format(Apache),
+		gofakeit.HTTPMethod(),
+		RandResourceURI(),
+		RandHTTPVersion(),
+		gofakeit.StatusCode(),
+		gofakeit.Number(30, 100000),
+		gofakeit.URL(),
+		gofakeit.UserAgent(),
+	)
+}
+
+	func loglvl () string {
+		randNumber := rand.Intn(8)
+		Lvl := ""
+
+		//"apache":  {"emerg", "alert", "crit", "error", "warn", "notice", "info", "debug"},
+		switch randNumber {
+		case 1:
+			Lvl = "emerg"
+		case 2:
+			Lvl = "alert"
+		case 3:
+			Lvl = "crit"
+		case 4:
+			Lvl = "error"
+		case 5: 
+			Lvl = "warn"
+		case 6: 
+			Lvl = "notice"
+		case 7:
+			Lvl = "info"
+		default:
+			Lvl = "debug"
+		}
+		return Lvl
+	}
+// NewApacheErrorLog creates a log string with apache error log format
+func NewApacheErrorLog(t time.Time) string {
+	return fmt.Sprintf(
+		ApacheErrorLog,
+		t.Format(ApacheError),
+		loglvl(),
+		gofakeit.Number(1, 10000),
+		gofakeit.Number(1, 10000),
+		gofakeit.IPv4Address(),
+		gofakeit.Number(1, 65535),
+		gofakeit.HackerPhrase(),
+	)
+}
+
+// NewRFC3164Log creates a log string with syslog (RFC3164) format
+func NewRFC3164Log(t time.Time) string {
+	return fmt.Sprintf(
+		RFC3164Log,
+		gofakeit.Number(0, 191),
+		t.Format(RFC3164),
+		strings.ToLower(gofakeit.Username()),
+		gofakeit.Word(),
+		gofakeit.Number(1, 10000),
+		gofakeit.HackerPhrase(),
+	)
+}
+
+// NewRFC5424Log creates a log string with syslog (RFC5424) format
+func NewRFC5424Log(t time.Time) string {
+	return fmt.Sprintf(
+		RFC5424Log,
+		gofakeit.Number(0, 191),
+		gofakeit.Number(1, 3),
+		t.Format(RFC5424),
+		gofakeit.DomainName(),
+		gofakeit.Word(),
+		gofakeit.Number(1, 10000),
+		gofakeit.Number(1, 1000),
+		"-", // TODO: structured data
+		gofakeit.HackerPhrase(),
+	)
+}
+
+// NewCommonLogFormat creates a log string with common log format
+func NewCommonLogFormat(t time.Time) string {
+	return fmt.Sprintf(
+		CommonLogFormat,
+		gofakeit.IPv4Address(),
+		RandAuthUserID(),
+		t.Format(CommonLog),
+		gofakeit.HTTPMethod(),
+		RandResourceURI(),
+		RandHTTPVersion(),
+		gofakeit.StatusCode(),
+		gofakeit.Number(0, 30000),
+	)
+}
+
+// NewJSONLogFormat creates a log string with json log format
+func NewJSONLogFormat(t time.Time) string {
+	return fmt.Sprintf(
+		JSONLogFormat,
+		gofakeit.IPv4Address(),
+		RandAuthUserID(),
+		t.Format(CommonLog),
+		gofakeit.HTTPMethod(),
+		RandResourceURI(),
+		RandHTTPVersion(),
+		gofakeit.StatusCode(),
+		gofakeit.Number(0, 30000),
+		gofakeit.URL(),
+	)
+}
+
+</code></pre>
+
+                                <p>
+                                   After I replaced the code, I ran go build and then go install in my terminal.
+                                   Now the apache error logs will be generated in a format 
+                                   that can be ingested into streamsets without raising an error.
+                                   Next I created a folder called Data in my downloads folder.
+                                   I opened my terminal and set the current working directory
+                                   to this folder and ran the following commands:<br />
+
+                                   <code>flog -t log -f apache_error -o error.log -n 100000 -w</code><br />
+                                   <code>flog -t log -f apache_common -o common.log -n 100000 -w</code><br />
+                                   <code>flog -t log -f apache_combined -o combined.log -n 100000 -w</code><br />
+
+                                   After the log files are generated I extracted the files of the GeoLite2-City_20220426.tar.gz
+                                   into the data folder as well and it was now ready to put into the docker container
+                                   where the SDC pipeline is running. To do so, I ran this command on a terminal in my host machine:<br />
+                                   <pre><code>docker cp C:\Users\[username]\Downloads\data [container_name]:/resources</code></pre><br />
+                                   
+                                </p>
+
+                                <h2 style="text-align:center;">Running the Pipeline</h2>
+                                <p>
+                                    The pipeline runs successfully and starts sending thousands of records every second to
+                                    the destination on the local file system. To move this outputted data from the SDC container
+                                    to the host machine, I could then use docker cp again but in reverse:
+
+                                    <pre><code>docker cp [container_name]:/tmp/out/apacheoutput/_tmp_logdata_0.csv C:\Users[name]\Downloads\data</code></pre>
+                                    Now that I had the final result of the pipeline on our host computer, I was able to put this CSV into tableau to create a visualization.
+                                </p>
+                                <div class='tableauPlaceholder' id='viz1652020687378' style='position: relative'><noscript><a href='#'><img alt='Dashboard 1 ' src='https:&#47;&#47;public.tableau.com&#47;static&#47;images&#47;lo&#47;logsviz&#47;Dashboard1&#47;1_rss.png' style='border: none' /></a></noscript><object class='tableauViz'  style='display:none;'><param name='host_url' value='https%3A%2F%2Fpublic.tableau.com%2F' /> <param name='embed_code_version' value='3' /> <param name='site_root' value='' /><param name='name' value='logsviz&#47;Dashboard1' /><param name='tabs' value='no' /><param name='toolbar' value='yes' /><param name='static_image' value='https:&#47;&#47;public.tableau.com&#47;static&#47;images&#47;lo&#47;logsviz&#47;Dashboard1&#47;1.png' /> <param name='animate_transition' value='yes' /><param name='display_static_image' value='yes' /><param name='display_spinner' value='yes' /><param name='display_overlay' value='yes' /><param name='display_count' value='yes' /><param name='language' value='en-US' /><param name='filter' value='publish=yes' /></object></div>                <script type='text/javascript'>                    var divElement = document.getElementById('viz1652020687378');                    var vizElement = divElement.getElementsByTagName('object')[0];                    if ( divElement.offsetWidth > 800 ) { vizElement.style.width='100%';vizElement.style.height=(divElement.offsetWidth*0.75)+'px';} else if ( divElement.offsetWidth > 500 ) { vizElement.style.width='100%';vizElement.style.height=(divElement.offsetWidth*0.75)+'px';} else { vizElement.style.width='100%';vizElement.style.height='1177px';}                     var scriptElement = document.createElement('script');                    scriptElement.src = 'https://public.tableau.com/javascripts/api/viz_v1.js';vizElement.parentNode.insertBefore(scriptElement, vizElement);</script>
+                                <p>
+                                    <br/>
+                                    This visualization is relatively simple, But I could make something more interesting if the data weren't cleaned so much.
+                                    The point of this project was to learn about the capabilites of StreamSets.
+                                    It seems like a powerful tool and it is very fun to use!!!
+                                </p>
+							</section>
+
+					</div>
+
+				<!-- Footer -->
+                <footer id="footer">
+                    <section class="alt">
+                        <h3>Address</h3>
+                        <p>821 S JOHNSTONE AVE APT 406<br />
+                            BARTLESVILLE, OK 74003-4656</p>
+                    </section>
+                    <section>
+                        <h3>Phone</h3>
+                        <p>(504) 201-4748</p>
+                    </section>
+                    <section>
+                        <h3>Email</h3>
+                        <p>paulhankins99@gmail.com</p>
+                    </section>
+                    <section>
+                        <h3>Social</h3>
+                        <ul class="icons alt">
+                            <li><a href="https://www.linkedin.com/in/paul-hankins-075119204/" class="icon brands alt fa-linkedin"><span class="label">Linkedin</span></a></li>
+                            <li><a href="https://github.com/Piblo99" class="icon brands alt fa-github"><span class="label">GitHub</span></a></li>
+                        </ul>
+                    </section>
+            </footer>
+
+			</div>
+
+		<!-- Scripts -->
+			<script src="assets/js/jquery.min.js"></script>
+			<script src="assets/js/jquery.scrollex.min.js"></script>
+			<script src="assets/js/jquery.scrolly.min.js"></script>
+			<script src="assets/js/browser.min.js"></script>
+			<script src="assets/js/breakpoints.min.js"></script>
+			<script src="assets/js/util.js"></script>
+			<script src="assets/js/main.js"></script>
+            <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.28.0/prism.min.js"></script>
+            <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.28.0/plugins/toolbar/prism-toolbar.min.js" integrity="sha512-st608h+ZqzliahyzEpETxzU0f7z7a9acN6AFvYmHvpFhmcFuKT8a22TT5TpKpjDa3pt3Wv7Z3SdQBCBdDPhyWA==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+            <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.28.0/plugins/copy-to-clipboard/prism-copy-to-clipboard.min.js" integrity="sha512-/kVH1uXuObC0iYgxxCKY41JdWOkKOxorFVmip+YVifKsJ4Au/87EisD1wty7vxN2kAhnWh6Yc8o/dSAXj6Oz7A==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+            <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.28.0/plugins/line-numbers/prism-line-numbers.min.js" integrity="sha512-BttltKXFyWnGZQcRWj6osIg7lbizJchuAMotOkdLxHxwt/Hyo+cl47bZU0QADg+Qt5DJwni3SbYGXeGMB5cBcw==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+            <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.28.0/components/prism-go.min.js" integrity="sha512-w200Nz1i9KgDNi+IpPMgpZBVRIvfVK/V5vskyHjkz7XJkVnRJcb1uNmpiHhDv0/Ln+GG2VqScKKz/1izBfg64Q==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+
+
+
+	</body>
+</html>
