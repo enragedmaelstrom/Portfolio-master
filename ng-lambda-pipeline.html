@@ -300,58 +300,15 @@ def lambda_handler(event, context):
                                     [the function takes so long to run at some points that a timout of 3 seconds will just make it quit without returning any outputs]
                                     
                                 </p>
-                                <h2 style="text-align:center;">Creating the logs</h2>
+                                <h2 style="text-align:center;">Running the Functions</h2>
 								<p>
-                                    To generate the logs that would be ingested into the pipeline,
-                                    I used a tool called <a style="color: blue" href="https://github.com/mingrammer/flog">flog</a>;
-                                    A fake log generator for common log formats. 
-                                    This tool was extremely helpful and perfectly 
-                                    generated the required logs for streamsets, except
-                                    for the apache error logs. Streamsets log parsers work
-                                    for a different version of the apache error logs than
-                                    flog was generating. I needed to edit the log.go file
-                                    to generate them in the correct format for SDC. I installed 
-                                    flog using <code>go get -u github.com/mingrammer/flog</code>
-                                    then I went to the location of the installed files at
-                                    C:\Users\[username]\go\pkg\mod\github.com\mingrammer\flog@v0.4.3<br />
-                                    I replaced the contents of log.go with the following code:
+                                    After the Lambda functions were configured, they ran fully automatically. The consumer ran every minute,
+                                    putting 4 new messages into the queue for each run. When no messages were detected in SQS, the consumer function would run 
+                                    and it would look through the names of the items in the messages. it would search up the wikipedia pages of those names, and return 
+                                    the first sentence from them. This sentence was then sent to the AWS Comprehend service to have sentiment analysis performed on it.
+                                    The name, wikipedia snippet, and sentiment were then all written into a csv file for each message consumed, and then placed into an s3 bucket.
                                 </p>
 
-                                <p>
-                                   After I replaced the code, I ran go build and then go install in my terminal.
-                                   Now the apache error logs will be generated in a format 
-                                   that can be ingested into streamsets without raising an error.
-                                   Next I created a folder called Data in my downloads folder.
-                                   I opened my terminal and set the current working directory
-                                   to this folder and ran the following commands:<br />
-
-                                   <code>flog -t log -f apache_error -o error.log -n 100000 -w</code><br />
-                                   <code>flog -t log -f apache_common -o common.log -n 100000 -w</code><br />
-                                   <code>flog -t log -f apache_combined -o combined.log -n 100000 -w</code><br />
-
-                                   After the log files are generated I extracted the files of the GeoLite2-City_20220426.tar.gz
-                                   into the data folder as well and it was now ready to put into the docker container
-                                   where the SDC pipeline is running. To do so, I ran this command on a terminal in my host machine:<br />
-                                   <pre><code>docker cp C:\Users\[username]\Downloads\data [container_name]:/resources</code></pre><br />
-                                   
-                                </p>
-
-                                <h2 style="text-align:center;">Running the Pipeline</h2>
-                                <p>
-                                    The pipeline runs successfully and starts sending thousands of records every second to
-                                    the destination on the local file system. To move this outputted data from the SDC container
-                                    to the host machine, we can use docker cp again but in reverse:
-
-                                    <pre><code>docker cp [container_name]:/tmp/out/apacheoutput/_tmp_logdata_0.csv C:\Users[name]\Downloads\data</code></pre>
-                                    Now that we have the final result of the pipeline on our host computer, we can put this CSV into tableau to create a visualization.
-                                </p>
-                                <div class='tableauPlaceholder' id='viz1652020687378' style='position: relative'><noscript><a href='#'><img alt='Dashboard 1 ' src='https:&#47;&#47;public.tableau.com&#47;static&#47;images&#47;lo&#47;logsviz&#47;Dashboard1&#47;1_rss.png' style='border: none' /></a></noscript><object class='tableauViz'  style='display:none;'><param name='host_url' value='https%3A%2F%2Fpublic.tableau.com%2F' /> <param name='embed_code_version' value='3' /> <param name='site_root' value='' /><param name='name' value='logsviz&#47;Dashboard1' /><param name='tabs' value='no' /><param name='toolbar' value='yes' /><param name='static_image' value='https:&#47;&#47;public.tableau.com&#47;static&#47;images&#47;lo&#47;logsviz&#47;Dashboard1&#47;1.png' /> <param name='animate_transition' value='yes' /><param name='display_static_image' value='yes' /><param name='display_spinner' value='yes' /><param name='display_overlay' value='yes' /><param name='display_count' value='yes' /><param name='language' value='en-US' /><param name='filter' value='publish=yes' /></object></div>                <script type='text/javascript'>                    var divElement = document.getElementById('viz1652020687378');                    var vizElement = divElement.getElementsByTagName('object')[0];                    if ( divElement.offsetWidth > 800 ) { vizElement.style.width='100%';vizElement.style.height=(divElement.offsetWidth*0.75)+'px';} else if ( divElement.offsetWidth > 500 ) { vizElement.style.width='100%';vizElement.style.height=(divElement.offsetWidth*0.75)+'px';} else { vizElement.style.width='100%';vizElement.style.height='1177px';}                     var scriptElement = document.createElement('script');                    scriptElement.src = 'https://public.tableau.com/javascripts/api/viz_v1.js';vizElement.parentNode.insertBefore(scriptElement, vizElement);</script>
-                                <p>
-                                    <br/>
-                                    This visualization is relatively simple, But I could make something more interesting if the data weren't cleaned so much.
-                                    The point of this project was to learn about the capabilites of StreamSets.
-                                    It seems like a powerful tool and it is very fun to use!!!
-                                </p>
 							</section>
 
 					</div>
